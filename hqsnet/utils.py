@@ -29,6 +29,9 @@ def get_reg_coeff():
 def get_lmbda():
     return 1.8
 
+def get_K():
+    return 25
+
 def get_data(data_path, N=None):
     print('Loading from', data_path)
     xdata = np.load(data_path)

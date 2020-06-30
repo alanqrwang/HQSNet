@@ -1,9 +1,6 @@
 import torch
 from pytorch_wavelets import DWTForward, DWTInverse
-from hqsplitamortized import utils
-
-import matplotlib.pyplot as plt
-from myutils.array import make_imshowable as mims
+from . import utils
 
 def data_consistency(k, k0, mask, lmbda=0):
     """
@@ -14,11 +11,7 @@ def data_consistency(k, k0, mask, lmbda=0):
     mask = mask.unsqueeze(-1)
     mask = mask.expand_as(k)
 
-#     print(k.shape)
-#     print(k0.shape)
-#     print(mask.shape)
     return (1 - mask) * k + mask * (lmbda*k + k0) / (1 + lmbda)
-    # return (1 - mask) * k + mask * k0 
 
 def get_tv(x):
     x = x.float()
@@ -47,35 +40,6 @@ def get_wavelets(x, device):
     wavelets[:,:,:Yl.shape[-2],:Yl.shape[-1]] = Yl # Put in LL coefficients
     return wavelets
 
-def loss_with_reg(z, x, w_coeff, tv_coeff, lmbda, device):
-    '''
-    z is learned variable, output of model
-    x is proximity variable
-    '''
-    l1 = torch.nn.L1Loss(reduction='sum')
-    l2 = torch.nn.MSELoss(reduction='sum')
-    # plt.imshow(mims(x.cpu().detach().numpy()), cmap='gray')
-    # plt.show()
-
-    # Data consistency term
-#     plt.imshow(mims(x.cpu().detach().numpy()), cmap='gray')
-#     plt.title(str(lmbda))
-#     plt.show()
-    dc = lmbda*l2(z, x)
-
-    # Regularization
-    z = z.permute(0, 3, 1, 2)
-    tv = get_tv(z)
-    wavelets = get_wavelets(z, device)
-    l1_wavelet = l1(wavelets, torch.zeros_like(wavelets)) # we want L1 value by itself, not the error
-
-    reg = w_coeff*l1_wavelet + tv_coeff*tv
-
-    loss = dc + reg
-    # print('dc and reg in loss', dc.item(), reg.item())
-
-    return loss, dc, reg
-
 def nextPowerOf2(n):
     count = 0;
 
@@ -91,13 +55,28 @@ def nextPowerOf2(n):
 
     return 1 << count;
 
-def final_loss(x_hat, y, mask, w_coeff, tv_coeff, device, reg_only=False):
-    # print('in final loss x_hat', x_hat)
-    # plt.imshow(mims(x_hat))
-    # plt.show()
-    # plt.imshow(mims(utils.ifft(y)))
-    # plt.show()
+def loss_with_reg(z, x, w_coeff, tv_coeff, lmbda, device):
+    '''
+    z is learned variable, output of model
+    x is proximity variable
+    '''
+    l1 = torch.nn.L1Loss(reduction='sum')
+    l2 = torch.nn.MSELoss(reduction='sum')
+    dc = lmbda*l2(z, x)
 
+    # Regularization
+    z = z.permute(0, 3, 1, 2)
+    tv = get_tv(z)
+    wavelets = get_wavelets(z, device)
+    l1_wavelet = l1(wavelets, torch.zeros_like(wavelets)) # we want L1 value by itself, not the error
+
+    reg = w_coeff*l1_wavelet + tv_coeff*tv
+
+    loss = dc + reg
+
+    return loss, dc, reg
+
+def final_loss(x_hat, y, mask, w_coeff, tv_coeff, device, reg_only=False):
     l1 = torch.nn.L1Loss(reduction='sum')
     l2 = torch.nn.MSELoss(reduction='sum')
  
@@ -120,6 +99,5 @@ def final_loss(x_hat, y, mask, w_coeff, tv_coeff, device, reg_only=False):
         loss = reg
     else:
         loss = dc + reg
-    # print('in final loss', loss, dc, reg, tv, l1_wavelet)
 
-    return loss, dc, reg
+    return loss

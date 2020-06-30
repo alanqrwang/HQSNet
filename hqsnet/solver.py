@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from hqsplitamortized import utils
-from hqsplitamortized import loss as losslayer
+from hqsnet import utils
+from hqsnet import loss as losslayer
 from myutils.array import make_imshowable as mims
 import matplotlib.pyplot as plt
 

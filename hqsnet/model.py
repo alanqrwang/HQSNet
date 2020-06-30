@@ -7,9 +7,8 @@ import torch.nn as nn
 4-layer CNN with residual output
 '''
 class ResBlock(nn.Module):
-    def __init__(self, n_ch=2, nf=64, ks=3, linear=False):
+    def __init__(self, n_ch=2, nf=64, ks=3):
         super(ResBlock, self).__init__()
-        self.linear = linear
         self.conv1 = nn.Conv2d(n_ch, nf, ks, padding = ks//2)
         self.conv2 = nn.Conv2d(nf, nf, ks, padding = ks//2)
         self.conv3 = nn.Conv2d(nf, nf, ks, padding = ks//2)
@@ -18,18 +17,41 @@ class ResBlock(nn.Module):
 
     def forward(self, x):
         conv1_out = self.conv1(x)
-        if not self.linear:
-            conv1_out = self.relu(conv1_out)
+        conv1_out = self.relu(conv1_out)
 
         conv2_out = self.conv2(conv1_out)
-        if not self.linear:
-            conv2_out = self.relu(conv2_out)
+        conv2_out = self.relu(conv2_out)
 
         conv3_out = self.conv3(conv2_out)
-        if not self.linear:
-             conv3_out = self.relu(conv3_out)
+        conv3_out = self.relu(conv3_out)
 
         conv4_out = self.conv4(conv3_out)
 
         x_res = x + conv4_out
         return x_res
+
+class HQSNet(nn.Module):
+    def __init__(self, K, mask, lmbda):
+        super(HQSNet, self).__init__()
+
+        self.mask = mask
+        self.lmbda = lmbda
+        self.resblocks = nn.ModuleList()
+        for i in range(K):
+            resblock = ResBlock()
+            self.resblocks.append(resblock)
+
+    def forward(self, x, y):
+        for i in range(len(self.resblocks)):
+            # z-minimization
+            x = x.permute(0, 3, 1, 2)
+            
+            z = self.resblocks[i](x)
+            
+            z = z.permute(0, 2, 3, 1)
+            
+            # x-minimization
+            z_ksp = utils.fft(z)
+            x_ksp = losslayer.data_consistency(z_ksp, y, self.mask, self.lmbda)
+            x = utils.ifft(x_ksp)
+        return x
