@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 '''
-4-layer CNN with residual output
+5-layer CNN with residual output
 '''
 class ResBlock(nn.Module):
     def __init__(self, n_ch=2, nf=64, ks=3):
@@ -12,7 +12,8 @@ class ResBlock(nn.Module):
         self.conv1 = nn.Conv2d(n_ch, nf, ks, padding = ks//2)
         self.conv2 = nn.Conv2d(nf, nf, ks, padding = ks//2)
         self.conv3 = nn.Conv2d(nf, nf, ks, padding = ks//2)
-        self.conv4 = nn.Conv2d(nf, n_ch, ks, padding = ks//2)
+        self.conv4 = nn.Conv2d(nf, nf, ks, padding = ks//2)
+        self.conv5 = nn.Conv2d(nf, n_ch, ks, padding = ks//2)
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -26,8 +27,11 @@ class ResBlock(nn.Module):
         conv3_out = self.relu(conv3_out)
 
         conv4_out = self.conv4(conv3_out)
+        conv4_out = self.relu(conv4_out)
 
-        x_res = x + conv4_out
+        conv5_out = self.conv5(conv4_out)
+
+        x_res = x + conv5_out
         return x_res
 
 class HQSNet(nn.Module):

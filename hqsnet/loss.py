@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from pytorch_wavelets import DWTForward, DWTInverse
 from . import utils
 
@@ -76,7 +77,9 @@ def loss_with_reg(z, x, w_coeff, tv_coeff, lmbda, device):
 
     return loss, dc, reg
 
-def final_loss(x_hat, y, mask, w_coeff, tv_coeff, device, reg_only=False):
+def final_loss(x_hat, y, mask, device, reg_only=False):
+    w_coeff, tv_coeff = utils.get_reg_coeff()
+
     l1 = torch.nn.L1Loss(reduction='sum')
     l2 = torch.nn.MSELoss(reduction='sum')
  
@@ -99,5 +102,34 @@ def final_loss(x_hat, y, mask, w_coeff, tv_coeff, device, reg_only=False):
         loss = reg
     else:
         loss = dc + reg
+
+    return loss
+
+def get_loss(x_hat, gt, y, mask, device, strategy, batch_idx, epoch, phase, max_batch):
+    if strategy == 'unsup':
+        loss = final_loss(x_hat, y, mask, device)
+    elif strategy == 'sup':
+        loss = nn.MSELoss()(x_hat, gt)
+
+    # Trains supervised for 20 epochs, and only on first 1/10 of the dataset
+    # Trains unsupervised for rest of the epochs, and on 9/10 of the dataset
+    elif strategy == 'refine':
+        if phase == 'train' and epoch <= 100:
+            if batch_idx < max_batch // 2:
+                loss = nn.MSELoss()(x_hat, gt)
+                print('sup on batch_idx', str(batch_idx))
+            else:
+                loss = None
+                print('sup skipping batch_idx', str(batch_idx))
+        elif phase == 'train' and epoch > 100:
+            if batch_idx >= max_batch // 2:
+                loss = final_loss(x_hat, y, mask, device)
+                print('unsup on batch_idx', str(batch_idx))
+            else:
+                loss = None
+                print('unsup skipping batch_idx', str(batch_idx))
+        else:
+            loss = nn.MSELoss()(x_hat, gt)
+            print('validation in refine')
 
     return loss

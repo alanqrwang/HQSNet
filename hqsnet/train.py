@@ -5,9 +5,10 @@ import myutils
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-import matplotlib.pyplot as plt
+import math
+import numpy as np
 
-def train_hqsnet(model, optimizer, dataloaders, num_epochs, device, w_coeff, tv_coeff, mask, unsupervised=True):
+def train_hqsnet(model, optimizer, dataloaders, num_epochs, device, w_coeff, tv_coeff, mask, filename, strategy, log_interval=1):
     loss_list = []
     val_loss_list = []
 
@@ -17,10 +18,10 @@ def train_hqsnet(model, optimizer, dataloaders, num_epochs, device, w_coeff, tv_
     for epoch in range(1, num_epochs+1):
         for phase in ['train', 'val']:
             if phase == 'train':
-                print('Train %d/%d, unsupervised=%s' % (epoch, num_epochs, unsupervised))
+                print('Train %d/%d, strategy=%s' % (epoch, num_epochs, strategy))
                 model.train()
             elif phase == 'val':
-                print('Validate %d/%d, unsupervised=%s' % (epoch, num_epochs, unsupervised))
+                print('Validate %d/%d, strategy=%s' % (epoch, num_epochs, strategy))
                 model.eval()
 
             epoch_loss = 0
@@ -33,20 +34,20 @@ def train_hqsnet(model, optimizer, dataloaders, num_epochs, device, w_coeff, tv_
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     zf = utils.ifft(y)
-                    if unsupervised:
+                    if strategy == 'unsup':
                         y, zf = utils.scale(y, zf)
  
                     x_hat = model(zf, y)
+                    loss = losslayer.get_loss(x_hat, gt, y, mask, device, strategy, batch_idx, epoch, phase, len(dataloaders[phase]))
 
-                    if unsupervised:
-                        loss = losslayer.final_loss(x_hat, y, mask, w_coeff, tv_coeff, device)
-                    else:
-                        loss = nn.MSELoss()(x_hat, gt)
-
-                    if phase == 'train':
+                    if phase == 'train' and loss is not None:
                         loss.backward()
                         optimizer.step()
-                    epoch_loss += loss.data.cpu().numpy() * len(y)
+
+                    if loss is not None and math.isnan(loss):
+                        sys.exit('found nan at epoch ' + str(epoch))
+                    if loss is not None:
+                        epoch_loss += loss.data.cpu().numpy()
 
                 epoch_samples += len(y)
 
@@ -61,6 +62,21 @@ def train_hqsnet(model, optimizer, dataloaders, num_epochs, device, w_coeff, tv_
             
         print('Best loss: %s, Epoch: %s' % (best_val_loss, best_epoch))
         # Optionally save checkpoints here, e.g.:
-        # save_checkpoint(epoch, resblocks.state_dict(), optimizer.state_dict(), train_epoch_loss, val_epoch_loss, filename, log_interval)
+        myutils.io.save_checkpoint(epoch, model.state_dict(), optimizer.state_dict(), train_epoch_loss, val_epoch_loss, filename, log_interval)
 
-    return resblocks, loss_list
+    return model, loss_list
+
+def test_hqsnet(trained_model, xdata, strategy, device):
+    recons = []
+    for i in range(len(xdata)):
+        y = torch.as_tensor(xdata[i:i+1]).to(device).float()
+        zf = utils.ifft(y)
+        if strategy == 'unsup':
+            y, zf = utils.scale(y, zf)
+
+        pred = trained_model(zf, y)
+        recons.append(pred.cpu().detach().numpy())
+
+    preds = np.array(recons).squeeze()
+     
+    return preds
