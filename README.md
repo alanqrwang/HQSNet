@@ -1,4 +1,5 @@
 # HQS-Net: Neural Network-based Reconstruction in Compressed Sensing MRI Without Fully-sampled Training Data
+![Representative Slices](figs/representative_slice_no_noise.png)
 ![link to paper](https://arxiv.org/abs/2007.14979)
 
 ## Abstract
