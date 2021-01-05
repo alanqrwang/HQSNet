@@ -1,3 +1,11 @@
+"""
+Dataset wrapper for HQSNet
+For more details, please read:
+    
+    Alan Q. Wang, Adrian V. Dalca, and Mert R. Sabuncu. 
+    "Neural Network-based Reconstruction in Compressed Sensing MRI Without Fully-sampled Training Data" 
+    MLMIR 2020. https://arxiv.org/abs/2007.14979
+"""
 import torch
 from torch.utils import data
 import numpy as np

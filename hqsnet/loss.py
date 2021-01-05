@@ -1,3 +1,11 @@
+"""
+Loss for HQSNet
+For more details, please read:
+    
+    Alan Q. Wang, Adrian V. Dalca, and Mert R. Sabuncu. 
+    "Neural Network-based Reconstruction in Compressed Sensing MRI Without Fully-sampled Training Data" 
+    MLMIR 2020. https://arxiv.org/abs/2007.14979
+"""
 import torch
 import torch.nn as nn
 from pytorch_wavelets import DWTForward, DWTInverse
@@ -15,13 +23,33 @@ def data_consistency(k, k0, mask, lmbda=0):
     return (1 - mask) * k + mask * (lmbda*k + k0) / (1 + lmbda)
 
 def get_tv(x):
-    x = x.float()
-    tv_x = torch.sum(((x[:, 0, :, :-1] - x[:, 0, :, 1:])**2 + (x[:, 1, :, :-1] - x[:, 1, :, 1:])**2)**0.5)
-    tv_y = torch.sum(((x[:, 0, :-1, :] - x[:, 0, 1:, :])**2 + (x[:, 1, :-1, :] - x[:, 1, 1:, :])**2)**0.5)
+    """Total variation loss
 
+    Parameters
+    ----------
+    x : torch.Tensor (batch_size, img_height, img_width, 2)
+        Input image
+
+    Returns
+    ----------
+    tv_loss : TV loss
+    """
+    tv_x = torch.sum((x[:, 0, :, :-1] - x[:, 0, :, 1:]).abs() + (x[:, 1, :, :-1] - x[:, 1, :, 1:]).abs())
+    tv_y = torch.sum((x[:, 0, :-1, :] - x[:, 0, 1:, :]).abs() + (x[:, 1, :-1, :] - x[:, 1, 1:, :]).abs())
     return tv_x + tv_y
 
 def get_wavelets(x, device):
+    """L1-penalty on wavelets
+
+    Parameters
+    ----------
+    x : torch.Tensor (batch_size, img_height, img_width, 2)
+        Input image
+
+    Returns
+    ----------
+    tv_loss : wavelets loss
+    """
     xfm = DWTForward(J=3, mode='zero', wave='db4').to(device) # Accepts all wave types available to PyWavelets
     Yl, Yh = xfm(x)
 
@@ -42,11 +70,9 @@ def get_wavelets(x, device):
     return wavelets
 
 def nextPowerOf2(n):
+    """Get next power of 2"""
     count = 0;
 
-    # First n in the below  
-    # condition is for the  
-    # case where n is 0 
     if (n and not(n & (n - 1))):
         return n
 
@@ -77,9 +103,30 @@ def loss_with_reg(z, x, w_coeff, tv_coeff, lmbda, device):
 
     return loss, dc, reg
 
-def final_loss(x_hat, y, mask, device, reg_only=False):
-    w_coeff, tv_coeff = utils.get_reg_coeff()
+def unsup_loss(x_hat, y, mask, alpha, beta, device):
+    '''Unsupervised loss for amortized optimization
+    Loss = DC + (1-alpha)*beta * Reg1 + (1-alpha)*(1-beta) * Reg2
 
+    Parameters
+    ----------
+    x_hat : torch.Tensor (batch_size, img_height, img_width, 2)
+        Reconstructed image
+    y : torch.Tensor (batch_size, img_height, img_width, 2)
+        Under-sampled measurement
+    mask : torch.Tensor (img_height, img_width)
+        Under-sampling mask
+    alpha : float
+        Wavelet regularization weighting coefficient
+    beta : float
+        TV regularization weighting coefficient
+    device : str
+        Pytorch device string
+
+    Returns
+    ----------
+    loss : total amortized loss
+    dc : dc loss
+    '''
     l1 = torch.nn.L1Loss(reduction='sum')
     l2 = torch.nn.MSELoss(reduction='sum')
  
@@ -96,40 +143,7 @@ def final_loss(x_hat, y, mask, device, reg_only=False):
     wavelets = get_wavelets(x_hat, device)
     l1_wavelet = l1(wavelets, torch.zeros_like(wavelets)) # we want L1 value by itself, not the error
  
-    reg = w_coeff*l1_wavelet + tv_coeff*tv
-
-    if reg_only:
-        loss = reg
-    else:
-        loss = dc + reg
-
-    return loss
-
-def get_loss(x_hat, gt, y, mask, device, strategy, batch_idx, epoch, phase, max_batch):
-    if strategy == 'unsup':
-        loss = final_loss(x_hat, y, mask, device)
-    elif strategy == 'sup':
-        loss = nn.MSELoss()(x_hat, gt)
-
-    # Trains supervised for 20 epochs, and only on first 1/10 of the dataset
-    # Trains unsupervised for rest of the epochs, and on 9/10 of the dataset
-    elif strategy == 'refine':
-        if phase == 'train' and epoch <= 100:
-            if batch_idx < max_batch // 2:
-                loss = nn.MSELoss()(x_hat, gt)
-                print('sup on batch_idx', str(batch_idx))
-            else:
-                loss = None
-                print('sup skipping batch_idx', str(batch_idx))
-        elif phase == 'train' and epoch > 100:
-            if batch_idx >= max_batch // 2:
-                loss = final_loss(x_hat, y, mask, device)
-                print('unsup on batch_idx', str(batch_idx))
-            else:
-                loss = None
-                print('unsup skipping batch_idx', str(batch_idx))
-        else:
-            loss = nn.MSELoss()(x_hat, gt)
-            print('validation in refine')
+    # Total loss
+    loss = dc + alpha*l1_wavelet + beta*tv
 
     return loss

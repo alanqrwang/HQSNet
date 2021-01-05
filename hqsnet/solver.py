@@ -4,6 +4,7 @@ from hqsnet import utils
 from hqsnet import loss as losslayer
 from myutils.array import make_imshowable as mims
 import matplotlib.pyplot as plt
+from hyperhqsnet import loss as hyperloss
 
 class ClassicalOptimization(nn.Module):
     def __init__(self, image_dims, y_zf, device):
@@ -38,12 +39,13 @@ def gradient_descent(x_prev, until_convergence, max_iters, tol, w_coeff, tv_coef
         optimizer.zero_grad()
         z = model().float().to(device)
 
-        classical_loss, dc_loss, reg_loss = losslayer.loss_with_reg(z, x_prev, w_coeff, tv_coeff, lmbda, device)
+        # classical_loss, dc_loss, reg_loss = losslayer.loss_with_reg(z, x_prev, w_coeff, tv_coeff, lmbda, device)
+        def unsup_loss(x_hat, y, mask, hyperparams, device, reg_types, cap_reg, range_restrict=True):
+        classical_loss, dc_loss, reg_loss = hyperloss.unsup_loss(z, x_prev, mask, w_coeff, tv_coeff, device)
         loss_list.append(classical_loss.item())
         classical_loss.backward()
         optimizer.step()
         iters += 1
-        # print(iters)
         
     print('gd iters:', iters)
     return z.detach(), loss_list     
@@ -66,28 +68,14 @@ def hqsplitting(xdata, mask, w_coeff, tv_coeff, lmbda, device, until_convergence
         print('iteration:', iteration, lmbda, w_coeff, tv_coeff, lr)
         #  z-minimization
         z, loss_list = gradient_descent(x, until_convergence, max_iters, tol, w_coeff, tv_coeff, lmbda, lr, device, mask)
-        # plt.imshow(mims(z.cpu().detach().numpy()), cmap='gray')
-        # plt.title('z')
-        # plt.show()
-
-        # plt.plot(loss_list)
-        # plt.title('z minimization loss')
-        # plt.show()
             
         # x-minimization
         z_ksp = utils.fft(z)
         x_ksp = losslayer.data_consistency(z_ksp, y, mask, lmbda=lmbda)
         x = utils.ifft(x_ksp)
-        # plt.imshow(mims(x.cpu().detach().numpy()), cmap='gray')
-        # plt.title('x')
-        # plt.show()
-        
-        # print('x', x)
-        # print('y', y)
+
         final_l, final_dc, final_reg = losslayer.final_loss(x, y, mask, w_coeff, tv_coeff, device)
         final_losses.append(final_l.item())
         final_dcs.append(final_dc.item())
         final_regs.append(final_reg.item())
-        # plt.plot(final_losses)
-        # plt.show()
     return x, final_losses, final_dcs, final_regs
